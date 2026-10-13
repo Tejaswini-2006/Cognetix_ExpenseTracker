@@ -68,6 +68,8 @@
     const descriptionInput = document.getElementById('description');
     const amountInput = document.getElementById('amount');
     const categorySelect = document.getElementById('category');
+    const optgroupIncome = document.getElementById('optgroup-income');
+    const optgroupExpense = document.getElementById('optgroup-expense');
     const dateInput = document.getElementById('date');
     const submitBtn = document.getElementById('submit-btn');
     const submitBtnText = document.getElementById('submit-btn-text');
@@ -204,6 +206,9 @@
         modalMessage.textContent = message;
         pendingConfirmAction = onConfirm;
         confirmModal.classList.remove('hidden');
+        if (modalConfirmBtn) {
+            modalConfirmBtn.focus();
+        }
     }
 
     function closeConfirmModal() {
@@ -319,16 +324,29 @@
         monthlyExpensesEl.textContent = formatCurrency(mExpenses);
         monthlyBalanceEl.textContent = formatCurrency(mBalance);
 
-        // Savings percentage ratio
-        let expenseRatio = 0;
-        if (mIncome > 0) {
-            expenseRatio = Math.min(100, Math.round((mExpenses / mIncome) * 100));
-        } else if (mExpenses > 0) {
-            expenseRatio = 100;
+        // Update color styling of monthly net savings
+        monthlyBalanceEl.className = 'metric-value';
+        if (mBalance > 0) {
+            monthlyBalanceEl.classList.add('text-success');
+        } else if (mBalance < 0) {
+            monthlyBalanceEl.classList.add('text-danger');
         }
 
-        savingsRatioText.textContent = `${expenseRatio}% spent`;
-        savingsProgressBar.style.width = `${expenseRatio}%`;
+        // Savings percentage ratio calculation
+        let expenseRatio = 0;
+        if (mIncome > 0) {
+            expenseRatio = Math.round((mExpenses / mIncome) * 100);
+            savingsRatioText.textContent = `${expenseRatio}% spent`;
+        } else if (mExpenses > 0) {
+            expenseRatio = 100;
+            savingsRatioText.textContent = `100%+ spent (No income)`;
+        } else {
+            expenseRatio = 0;
+            savingsRatioText.textContent = `0% spent`;
+        }
+
+        const barWidth = Math.min(100, Math.max(0, expenseRatio));
+        savingsProgressBar.style.width = `${barWidth}%`;
 
         if (expenseRatio > 85) {
             savingsProgressBar.className = 'progress-bar-fill high-expense';
@@ -363,8 +381,11 @@
             return;
         }
 
-        // Sort categories by highest expense
-        categories.sort((a, b) => categoryTotals[b] - categoryTotals[a]);
+        // Sort categories by highest expense, with name as secondary tie-breaker
+        categories.sort((a, b) => {
+            const diff = categoryTotals[b] - categoryTotals[a];
+            return diff !== 0 ? diff : a.localeCompare(b);
+        });
 
         categories.slice(0, 5).forEach(cat => {
             const amount = categoryTotals[cat];
@@ -397,7 +418,7 @@
         });
 
         categoryFilter.innerHTML = '<option value="all">All Categories</option>';
-        Array.from(categoriesSet).sort().forEach(cat => {
+        Array.from(categoriesSet).sort((a, b) => a.localeCompare(b)).forEach(cat => {
             const opt = document.createElement('option');
             opt.value = cat;
             opt.textContent = cat;
@@ -587,7 +608,37 @@
 
     function getSelectedType() {
         const activeRadio = form.querySelector('input[name="type"]:checked');
-        return activeRadio ? activeRadio.value : 'expense';
+        return activeRadio ? activeRadio.value : 'income';
+    }
+
+    function updateCategoryOptionsForType(typeVal) {
+        if (!optgroupIncome || !optgroupExpense) return;
+
+        if (typeVal === 'income') {
+            optgroupIncome.hidden = false;
+            optgroupIncome.disabled = false;
+            optgroupIncome.style.display = '';
+
+            optgroupExpense.hidden = true;
+            optgroupExpense.disabled = true;
+            optgroupExpense.style.display = 'none';
+        } else {
+            optgroupIncome.hidden = true;
+            optgroupIncome.disabled = true;
+            optgroupIncome.style.display = 'none';
+
+            optgroupExpense.hidden = false;
+            optgroupExpense.disabled = false;
+            optgroupExpense.style.display = '';
+        }
+
+        // If currently selected category does not belong to active group, reset
+        const activeGroup = typeVal === 'income' ? optgroupIncome : optgroupExpense;
+        const currentVal = categorySelect.value;
+        const isValidOption = Array.from(activeGroup.querySelectorAll('option')).some(o => o.value === currentVal);
+        if (!isValidOption && currentVal !== '') {
+            categorySelect.value = '';
+        }
     }
 
     function setSelectedType(typeVal) {
@@ -600,14 +651,17 @@
 
     function updateTypeButtonClasses() {
         const typeBtns = form.querySelectorAll('.type-btn');
+        let selectedType = 'income';
         typeBtns.forEach(btn => {
             const radio = btn.querySelector('input[type="radio"]');
             if (radio && radio.checked) {
                 btn.classList.add('active');
+                selectedType = radio.value;
             } else {
                 btn.classList.remove('active');
             }
         });
+        updateCategoryOptionsForType(selectedType);
     }
 
     function resetFormState() {
@@ -685,9 +739,9 @@
         transactionIdInput.value = tx.id;
         descriptionInput.value = tx.description;
         amountInput.value = tx.amount;
+        setSelectedType(tx.type);
         categorySelect.value = tx.category;
         dateInput.value = tx.date;
-        setSelectedType(tx.type);
 
         clearErrors();
 
@@ -784,13 +838,47 @@
             descriptionInput.focus();
         });
 
-        // Demo Data Button
+        // Real-time input validation error clearing
+        descriptionInput.addEventListener('input', () => {
+            if (descriptionInput.value.trim().length >= 2) {
+                descriptionError.textContent = '';
+                descriptionInput.classList.remove('invalid');
+            }
+        });
+
+        amountInput.addEventListener('input', () => {
+            const val = parseFloat(amountInput.value);
+            if (!isNaN(val) && val > 0) {
+                amountError.textContent = '';
+                amountInput.classList.remove('invalid');
+            }
+        });
+
+        categorySelect.addEventListener('change', () => {
+            if (categorySelect.value) {
+                categoryError.textContent = '';
+                categorySelect.classList.remove('invalid');
+            }
+        });
+
+        dateInput.addEventListener('input', () => {
+            if (dateInput.value) {
+                dateError.textContent = '';
+                dateInput.classList.remove('invalid');
+            }
+        });
+
+        // Demo Data Button (generates unique IDs to prevent duplicate collisions)
         demoDataBtn.addEventListener('click', () => {
             showConfirmModal(
                 'Load Demo Data',
                 'This will add 5 sample transactions to your tracker. Continue?',
                 () => {
-                    transactions = [...DEMO_TRANSACTIONS, ...transactions];
+                    const freshDemo = DEMO_TRANSACTIONS.map(tx => ({
+                        ...tx,
+                        id: generateUniqueId()
+                    }));
+                    transactions = [...freshDemo, ...transactions];
                     saveTransactions();
                     updateCategoryFilterOptions();
                     refreshAllUI();
@@ -812,6 +900,12 @@
                     transactions = [];
                     saveTransactions();
                     resetFormState();
+                    // Reset filter controls
+                    searchInput.value = '';
+                    clearSearchBtn.classList.add('hidden');
+                    typeFilter.value = 'all';
+                    categoryFilter.value = 'all';
+                    sortSelect.value = 'date-desc';
                     updateCategoryFilterOptions();
                     refreshAllUI();
                     showToast('All local data cleared.', 'danger');
@@ -836,8 +930,16 @@
         });
 
         document.addEventListener('keydown', (e) => {
-            if (e.key === 'Escape' && !confirmModal.classList.contains('hidden')) {
-                closeConfirmModal();
+            if (!confirmModal.classList.contains('hidden')) {
+                if (e.key === 'Escape') {
+                    closeConfirmModal();
+                } else if (e.key === 'Enter' && e.target !== modalCancelBtn) {
+                    e.preventDefault();
+                    if (typeof pendingConfirmAction === 'function') {
+                        pendingConfirmAction();
+                    }
+                    closeConfirmModal();
+                }
             }
         });
     }
@@ -861,6 +963,9 @@
 
         // Initialize event listeners
         initEventListeners();
+
+        // Initialize form category optgroups for default type (Income)
+        updateTypeButtonClasses();
 
         // Populate category dropdown filters & render UI
         updateCategoryFilterOptions();
